@@ -1,0 +1,8 @@
+*.zip
+*test*
+*.tar.gz
+*.tar
+*.json
+*.pt
+*.pth
+evaluation/models/*

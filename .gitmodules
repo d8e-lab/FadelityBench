@@ -1,0 +1,9 @@
+[submodule "BARTScore"]
+	path = BARTScore
+	url = https://github.com/neulab/BARTScore.git
+[submodule "bert_score"]
+	path = bert_score
+	url = https://github.com/Tiiiger/bert_score.git
+[submodule "bleurt"]
+	path = bleurt
+	url = https://github.com/google-research/bleurt.git
