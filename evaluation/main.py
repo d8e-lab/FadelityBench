@@ -1,4 +1,4 @@
-from .metrics import MetricScore, args
+from metrics import MetricScore, args
 
 class Experiments:
     def __init__(self):

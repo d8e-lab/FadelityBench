@@ -1,6 +1,7 @@
 import evaluate
 import numpy as np
 from bart_score import BARTScorer
+from bert_score import BERTScorer
 import argparse
 import json
 from bleurt import score
@@ -9,9 +10,11 @@ from tqdm import tqdm
 from openai import OpenAI
 import concurrent.futures
 import math
+import pickle
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--dataset", type=str, default="yelp", help="amazon, yelp or google")
+parser.add_argument("--hf_evaluate", action="store_true", help="use hf evaluate for BERT score")
 parser.add_argument("--ratio", type=float, default=0.1, help="ratio of data to use for evaluation")
 args = parser.parse_args()
 
@@ -21,7 +24,7 @@ api_key = ""
 # your api base
 api_base = ""
 
-client = OpenAI(base_url=api_base, api_key=api_key)
+# client = OpenAI(base_url=api_base, api_key=api_key)
 
 with open("evaluation/system_prompt.txt", "r") as f:
     system_prompt = f.read()
@@ -30,9 +33,18 @@ class MetricScore:
     def __init__(self):
         print(f"evaluating dataset: {args.dataset}")
         # self.input_path = f"convert_files/{args.dataset}/gen_datas.jsonl"
-        self.input_path = f"gen_explanations/G-Refer/{args.dataset}_pred.jsonl"
-        self.data = []
-        self.ref_data = []
+        # self.input_path = f"gen_explanations/G-Refer/{args.dataset}_pred.jsonl"
+
+        # self.data = []
+        # self.ref_data = []
+
+        self.pred_input_path = (f"data/tst_pred.pkl")
+        self.ref_input_path = f"data/tst_ref.pkl"
+
+        with open(self.pred_input_path, "rb") as f:
+            self.data = pickle.load(f)
+        with open(self.ref_input_path, "rb") as f:
+            self.ref_data = pickle.load(f)
 
     def get_score(self):
         scores = {}
@@ -118,16 +130,26 @@ def get_gpt_score(predictions, references):
     return np.mean(results), np.std(results)
 
 def BERT_score(predictions, references):
-    bertscore = evaluate.load("bertscore")
-    results = bertscore.compute(
-        predictions=predictions,
-        references=references,
-        lang="en",
-        rescale_with_baseline=True,
-    )
-    precision = results["precision"]
-    recall = results["recall"]
-    f1 = results["f1"]
+    if args.hf_evaluate:
+        bertscore = evaluate.load("bertscore")
+        results = bertscore.compute(
+            predictions=predictions,
+            references=references,
+            lang="en",
+            rescale_with_baseline=True,
+        )
+        precision = results["precision"]
+        recall = results["recall"]
+        f1 = results["f1"]
+    else:
+        bertscore = BERTScorer(model_type="microsoft/deberta-xlarge-mnli",#"roberta-large",
+                               rescale_with_baseline=True, 
+                               lang='en',
+                               device="cuda:0")
+        precision, recall, f1 = bertscore.score(predictions, references)
+        precision = precision.cpu().numpy()
+        recall = recall.cpu().numpy()
+        f1 = f1.cpu().numpy()
     return (
         np.mean(precision),
         np.mean(recall),
@@ -139,7 +161,7 @@ def BERT_score(predictions, references):
 
 def BART_score(predictions, references):
     bart_scorer = BARTScorer(device='cuda:0', checkpoint="/mnt/82_store/LLM-weights/facebook/bart-large-cnn")
-    bart_scorer.load(path='fadelitybench/evaluation/models/bart_score.pth')
+    bart_scorer.load(path='evaluation/models/bart_score.pth')
     scores = []
     for i in tqdm(range(0, len(predictions), 4), desc="Computing BART scores"):
         batch_pred = predictions[i:i+4]
@@ -149,11 +171,13 @@ def BART_score(predictions, references):
     return np.mean(scores), np.std(scores)
 
 def BLEURT_score(predictions, references):
-    bleurt_ops = score.create_bleurt_ops()
-    scores = []
-    for ref, pred in tqdm(zip(references, predictions), total=len(references), desc="Computing BLEURT scores"):
-        ref_tensor = tf.constant([ref])
-        pred_tensor = tf.constant([pred])
-        bleurt_out = bleurt_ops(references=ref_tensor, candidates=pred_tensor)
-        scores.append(bleurt_out["predictions"][0])
+    # bleurt_ops = score.create_bleurt_ops()
+    # scores = []
+    # for ref, pred in tqdm(zip(references, predictions), total=len(references), desc="Computing BLEURT scores"):
+    #     ref_tensor = tf.constant([ref])
+    #     pred_tensor = tf.constant([pred])
+    #     bleurt_out = bleurt_ops(references=ref_tensor, candidates=pred_tensor)
+    #     scores.append(bleurt_out["predictions"][0])
+    bleurt = score.BleurtScorer(checkpoint="evaluation/models/BLEURT-20")
+    scores = bleurt.score(references=references, candidates=predictions)
     return np.mean(scores), np.std(scores)
