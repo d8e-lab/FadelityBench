@@ -11,18 +11,22 @@ from openai import OpenAI
 import concurrent.futures
 import math
 import pickle
+import os
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--dataset", type=str, default="yelp", help="amazon, yelp or google")
 parser.add_argument("--hf_evaluate", action="store_true", help="use hf evaluate for BERT score")
-parser.add_argument("--ratio", type=float, default=0.1, help="ratio of data to use for evaluation")
+parser.add_argument("--bert_model", type=str, default="microsoft/deberta-xlarge-mnli", help="bert model to use for BERT score")
+parser.add_argument("--parabank", action="store_true", help="use bart model finetuned on parabank")
+parser.add_argument("--bleurt_model", type=str, default="", help="bleurt model PATH to use for BLEURT score, default is BERT-Tiny")
+parser.add_argument("--predict_path", type=str, default="data/tst_pred.pkl", help="path to predictions")
+parser.add_argument("--reference_path", type=str, default="data/tst_ref.pkl", help="path to references")
 args = parser.parse_args()
 
 # your api key
-api_key = ""
+api_key = os.environ["API_KEY"]
 
 # your api base
-api_base = ""
+api_base = os.environ["API_BASE_URL"]
 
 # client = OpenAI(base_url=api_base, api_key=api_key)
 
@@ -31,7 +35,6 @@ with open("evaluation/system_prompt.txt", "r") as f:
 
 class MetricScore:
     def __init__(self):
-        print(f"evaluating dataset: {args.dataset}")
         # self.input_path = f"convert_files/{args.dataset}/gen_datas.jsonl"
         # self.input_path = f"gen_explanations/G-Refer/{args.dataset}_pred.jsonl"
 
@@ -82,8 +85,6 @@ class MetricScore:
 
     def print_score(self):
         scores = self.get_score()
-        print(f"dataset: {args.dataset}")
-        print(f"ratio: {args.ratio}")
         print("Explanability Evaluation Metrics:")
         print(f"gpt_score: {scores['gpt_score']:.4f}")
         print(f"bert_precision: {scores['bert_precision']:.4f}")
@@ -142,7 +143,7 @@ def BERT_score(predictions, references):
         recall = results["recall"]
         f1 = results["f1"]
     else:
-        bertscore = BERTScorer(model_type="microsoft/deberta-xlarge-mnli",#"roberta-large",
+        bertscore = BERTScorer(model_type=args.bert_model, # "microsoft/deberta-xlarge-mnli","roberta-large",
                                rescale_with_baseline=True, 
                                lang='en',
                                device="cuda:0")
@@ -160,8 +161,9 @@ def BERT_score(predictions, references):
     )
 
 def BART_score(predictions, references):
-    bart_scorer = BARTScorer(device='cuda:0', checkpoint="/mnt/82_store/LLM-weights/facebook/bart-large-cnn")
-    bart_scorer.load(path='evaluation/models/bart_score.pth')
+    bart_scorer = BARTScorer(device='cuda:0', checkpoint="facebook/bart-large-cnn")
+    if args.parabank:
+        bart_scorer.load(path='evaluation/models/bart_score.pth')
     scores = []
     for i in tqdm(range(0, len(predictions), 4), desc="Computing BART scores"):
         batch_pred = predictions[i:i+4]
@@ -171,13 +173,6 @@ def BART_score(predictions, references):
     return np.mean(scores), np.std(scores)
 
 def BLEURT_score(predictions, references):
-    # bleurt_ops = score.create_bleurt_ops()
-    # scores = []
-    # for ref, pred in tqdm(zip(references, predictions), total=len(references), desc="Computing BLEURT scores"):
-    #     ref_tensor = tf.constant([ref])
-    #     pred_tensor = tf.constant([pred])
-    #     bleurt_out = bleurt_ops(references=ref_tensor, candidates=pred_tensor)
-    #     scores.append(bleurt_out["predictions"][0])
-    bleurt = score.BleurtScorer(checkpoint="evaluation/models/BLEURT-20")
+    bleurt = score.BleurtScorer(checkpoint=args.bleurt_model)
     scores = bleurt.score(references=references, candidates=predictions)
     return np.mean(scores), np.std(scores)
