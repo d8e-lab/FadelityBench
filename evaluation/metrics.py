@@ -12,6 +12,8 @@ import concurrent.futures
 import math
 import pickle
 import os
+import csv
+from typing import Dict
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--hf_evaluate", action="store_true", help="use hf evaluate for BERT score")
@@ -35,19 +37,16 @@ with open("evaluation/system_prompt.txt", "r") as f:
 
 class MetricScore:
     def __init__(self):
-        # self.input_path = f"convert_files/{args.dataset}/gen_datas.jsonl"
-        # self.input_path = f"gen_explanations/G-Refer/{args.dataset}_pred.jsonl"
-
-        # self.data = []
-        # self.ref_data = []
-
-        self.pred_input_path = (f"data/tst_pred.pkl")
-        self.ref_input_path = f"data/tst_ref.pkl"
-
-        with open(self.pred_input_path, "rb") as f:
-            self.data = pickle.load(f)
-        with open(self.ref_input_path, "rb") as f:
-            self.ref_data = pickle.load(f)
+        self.pred_input_path = args.predict_path
+        self.ref_input_path = args.reference_path
+        self.data = []
+        self.ref_data = []
+        with open(self.pred_input_path,'r') as f:
+            for line in f:
+                self.data.append(line)
+        with open(self.ref_input_path,'r') as f:
+            for line in f:
+                self.ref_data.append(line)
 
     def get_score(self):
         scores = {}
@@ -85,6 +84,7 @@ class MetricScore:
 
     def print_score(self):
         scores = self.get_score()
+        self.save_score(scores)
         print("Explanability Evaluation Metrics:")
         print(f"gpt_score: {scores['gpt_score']:.4f}")
         print(f"bert_precision: {scores['bert_precision']:.4f}")
@@ -100,6 +100,15 @@ class MetricScore:
         print(f"bert_f1_std: {scores['bert_f1_std']:.4f}")
         print(f"bart_score_std: {scores['bart_score_std']:.4f}")
         print(f"bleurt_score_std: {scores['bleurt_score_std']:.4f}")
+    
+    def save_score(self,scores:Dict):
+        with open("experiments/metric_scores.csv", "a+", newline='') as csvfile:
+            pred_file = os.path.basename(self.pred_input_path)
+            scores.update({"File":pred_file})
+            writer = csv.DictWriter(csvfile,fieldnames=[key for key in scores.keys()])
+            if csvfile.tell() == 0:
+                writer.writeheader()
+            writer.writerow(scores)
 
 def get_gpt_response(prompt):
     completion = client.chat.completions.create(
